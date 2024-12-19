@@ -1,0 +1,242 @@
+### Import Required Libraries and Set Up Environment Variables
+!pip install python-dotenv
+# Dependencies
+import requests
+import time
+from dotenv import load_dotenv
+import os
+import pandas as pd
+import json
+import os
+import numpy as np
+from datetime import datetime
+## Load the NASA_API_KEY from the env file
+# load_dotenv()
+NASA_API_KEY = "9thqbqI73IiZoWGXnzLIcBfXPU1cpw7hokAcnXD7"
+# os.getenv('NASA_API_KEY')
+### CME Data
+# Set the base URL to NASA's DONKI API:
+base_url = "https://api.nasa.gov/DONKI/"
+
+# Set the specifier for CMEs:
+CME = "CME"
+
+# Search for CMEs published between a begin and end date
+startDate = "2013-05-01"
+endDate   = "2024-05-01"
+
+# Build URL for CME
+url = f'{base_url}{CME}?startDate={startDate}&endDate={endDate}&api_key={NASA_API_KEY}'
+# Make a "GET" request for the CME URL
+response = requests.get(url)
+
+# Check the response status code to ensure the request succeeded
+if response.status_code == 200:
+    # Convert the response to JSON and store it in a variable
+    cme_json = response.json()
+    print("Data retrieved successfully!")
+else:
+    print(f"Error: {response.status_code}, {response.text}")
+
+# Make a "GET" request for the CME URL and store it in a variable named cme_response
+# Convert the response variable to json and store it as a variable named cme_json
+cme_json = response
+# Preview the first result in JSON format
+# Use json.dumps with argument indent=4 to format data
+print(json.dumps(response,indent=4))
+# Convert cme_json to a Pandas DataFrame
+df = pd.json_normalize(cme_json)
+backup = df
+
+# Keep only the columns: activityID, startTime, linkedEvents
+# Convert the response content to JSON
+cme_json = response.json()
+# Use json.dumps to pretty-print the JSON content
+import json
+print(json.dumps(cme_json, indent=4))
+
+
+# Notice that the linkedEvents column allows us to identify the corresponding GST
+# Remove rows with missing 'linkedEvents' since we won't be able to assign these to GSTs
+df= df.dropna().reset_index().drop(columns='index')
+df
+# Convert the response variable to json and store it as a variable named cme_json
+cme_json = response
+
+# Convert cme_json to a Pandas DataFrame
+df = pd.json_normalize(cme_json)
+backup = df
+
+# Keep only the columns: activityID, startTime, linkedEvents
+# Convert the response content to JSON
+cme_json = response.json()
+# Use json.dumps to pretty-print the JSON content
+import json
+print(json.dumps(cme_json, indent=4))
+
+# Notice that the linkedEvents column allows us to identify the corresponding GST
+# Remove rows with missing 'linkedEvents' since we won't be able to assign these to GSTs
+# Check if 'linkedEvents' is in the columns before attempting to dropna
+if 'linkedEvents' in df.columns:
+    df = df.dropna(subset=['linkedEvents']).reset_index().drop(columns='index')
+else:
+    print("Warning: 'linkedEvents' column not found in DataFrame. Skipping dropna.")
+
+# Notice that the linkedEvents sometimes contains multiple events per row
+# Write a nested for loop that iterates first over each row in the cme DataFrame (using the index)
+# and then iterates over the values in 'linkedEvents'
+# and adds the elements individually to a list of dictionaries where each row is one element
+
+# Initialize an empty list to store the expanded rows
+linked_lst = []
+
+# Iterate over each index in the DataFrame
+# Check if df is not empty and 'linkedEvents' is a column
+if not df.empty and 'linkedEvents' in df.columns:
+    for i in df.index:
+        # Check if 'linkedEvents' has more than one dictionary
+        if isinstance(df.iloc[i]["linkedEvents"], list) and len(df.iloc[i]["linkedEvents"]) > 1: #check if linkedEvents is a list to avoid TypeError
+            # Iterate over each dictionary in the list
+            for activity in df.iloc[i]["linkedEvents"]:
+                activity["activityID"] = df.iloc[i]["activityID"]
+                activity["startTime"] = df.iloc[i]["startTime"]
+                linked_lst.append(activity)
+        # If linkedEvents is not a list (likely empty or a single dict), treat it as a single item
+        elif isinstance(df.iloc[i]["linkedEvents"], dict):
+            add_dict = df.iloc[i]["linkedEvents"]
+            add_dict["activityID"] = df.iloc[i]["activityID"]
+            add_dict["startTime"] = df.iloc[i]["startTime"]
+            linked_lst.append(add_dict)
+        else:
+            # Handle cases where linkedEvents is neither a list nor a dict
+            print(f"Warning: Unexpected data type for linkedEvents at index {i}: {type(df.iloc[i]['linkedEvents'])}")
+else:
+    print("Warning: DataFrame is empty or 'linkedEvents' column not found. Skipping linkedEvents processing.")
+
+
+# Create a new DataFrame from the expanded rows
+df_linked = pd.DataFrame(linked_lst)
+df_linked
+
+#Colab gemini pointed out erroe, and this was its suggested changes
+
+# Create a function called extract_activityID_from_dict that takes a dict as input such as in linkedEvents
+# and verify below that it works as expected using one row from linkedEvents as an example
+# Be sure to use a try and except block to handle errors
+# Log the error or print it for debugging
+def extract_activityID_from_dict(input_dict):
+    try:
+        if "activityID" in input_dict and "GST" in input_dict["activityID"]:
+            return input_dict
+        else:
+            return None
+    except Exception as e:
+        print(f"Error with input: {input_dict}")
+        return None
+# Apply this function to each row in the 'linkedEvents' column (you can use apply() and a lambda function)
+# and create a new column called 'GST_ActivityID' using loc indexer:
+cme_df = df.copy()
+cme_df["linkedEvents"] = cme_df["linkedEvents"].explode()
+cme_df["GST_ActivityID"] = cme_df["linkedEvents"].apply(extract_activityID_from_dict)
+cme_df
+# Remove rows with missing GST_ActivityID, since we can't assign them to GSTs:
+cme_df = cme_df.dropna().reset_index().drop(columns='index')
+cme_df
+
+# print out the datatype of each column in this DataFrame:
+cme_df.info()
+# Convert the 'GST_ActivityID' column to string format
+cme_df['GST_ActivityID'] = cme_df.apply(getActivityID,axis=1)
+cme_df
+# Convert startTime to datetime format
+cme_df['startTime'] = pd.to_datetime(cme_df['startTime'])
+# Rename startTime to startTime_CME and activityID to cmeID
+cme_df = cme_df.rename(columns={'startTime':'startTime_CME','activityID':'cmeID'})
+# Drop linkedEvents
+cme_df= cme_df.drop(columns='linkedEvents')
+# Verify that all steps were executed correctly
+cme_df
+cme_df.info()
+
+# We are only interested in CMEs related to GSTs so keep only rows where the GST_ActivityID column contains 'GST'
+# use the method 'contains()' from the str library.
+
+### GST Data
+# Set the base URL to NASA's DONKI API:
+base_url = "https://api.nasa.gov/DONKI/"
+
+# Set the specifier for Geomagnetic Storms (GST):
+GST = "GST"
+
+# Search for GSTs between a begin and end date
+startDate = "2013-05-01"
+endDate   = "2024-05-01"
+
+# Build URL for GST
+url = f'{base_url}{GST}?startDate={startDate}&endDate={endDate}&api_key={NASA_API_KEY}'
+# Make a "GET" request for the GST URL and store it in a variable named gst_response
+gst_response = requests.get(url=url).json()
+
+# Convert the response variable to json and store it as a variable named gst_json
+
+# Preview the first result in JSON format
+# Use json.dumps with argument indent=4 to format data
+gst_json = gst_response
+print(json.dumps(gst_response,indent=4))
+# Convert gst_json to a Pandas DataFrame
+df_gst = pd.json_normalize(gst_json)
+# Keep only the columns: activityID, startTime, linkedEvents
+df_gst = df_gst[["gstID","startTime","linkedEvents"]]
+df_gst
+# Notice that the linkedEvents column allows us to identify the corresponding CME
+# Remove rows with missing 'linkedEvents' since we won't be able to assign these to CME
+
+df_gst = df_gst.replace(to_replace='None', value=np.nan).dropna().reset_index().drop(columns='index')
+df_gst
+
+# Notice that the linkedEvents sometimes contains multiple events per row
+# Use the explode method to ensure that each row is one element. Ensure to reset the index and drop missing values.
+df_gst=df_gst.explode("linkedEvents")
+df_gst
+# Apply the extract_activityID_from_dict function to each row in the 'linkedEvents' column (you can use apply() and a lambda function)
+# and create a new column called 'CME_ActivityID' using loc indexer:
+def get_activityID_from_dict(input_dict):
+     return input_dict["activityID"]
+df_gst["CME_ActivityID"] =df_gst['linkedEvents'].apply(get_activityID_from_dict)
+# Remove rows with missing CME_ActivityID, since we can't assign them to CMEs:
+df_gst
+# Convert the 'CME_ActivityID' column to string format
+# Convert the 'gstID' column to string format
+df_gst.info
+
+# Convert startTime to datetime format
+df_gst['startTime'] = pd.to_datetime(df_gst['startTime'])
+
+# Rename startTime to startTime_GST
+df_gst = df_gst.rename(columns={'startTime':'startTime_GST'})
+# Drop linkedEvents
+df_gst= df_gst.drop(columns='linkedEvents')
+# Verify that all steps were executed correctly
+df_gst
+df_gst.info()
+# We are only interested in GSTs related to CMEs so keep only rows where the CME_ActivityID column contains 'CME'
+# use the method 'contains()' from the str library.
+
+df_gst = df_gst[df_gst["CME_ActivityID"].str.contains('CME',regex=False)]
+df_gst
+
+### Merge both datatsets
+# Now merge both datasets using 'gstID' and 'CME_ActivityID' for gst and 'GST_ActivityID' and 'cmeID' for cme. Use the 'left_on' and 'right_on' specifiers.
+col# Verify that the new DataFrame has the same number of rows as cme and gst
+new_df.info()
+### Computing the time it takes for a CME to cause a GST
+# Compute the time diff between startTime_GST and startTime_CME by creating a new column called `timeDiff`.
+new_df['timeDiff'] = (new_df.startTime_GST - new_df.startTime_CME)
+new_df
+# Use describe() to compute the mean and median time
+# that it takes for a CME to cause a GST.
+new_df.describe()
+### Exporting data in csv format
+# Export data to CSV without the index
+new_df.to_csv('file.csv',index=False)
+
